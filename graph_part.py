@@ -125,7 +125,7 @@ if __name__ == '__main__':
         seed = np.random.rand()
         A, part = get_metis_instance(n_parts, n, m, seed = seed)
 
-        n_times = 1000
+        n_times = 3
         y = None
         n_nodes = A.get_shape()[0] 
         
