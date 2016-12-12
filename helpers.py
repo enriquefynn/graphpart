@@ -31,7 +31,12 @@ def get_metis_edge_cut(graph, partitions):
             if metis_partition[node[0]] != metis_partition[node[1]]:
                 edge_cut += 1
         edge_cut /= graph.number_of_edges()
-        return edge_cut, metis_partition
+
+        balance = [0 for i in range(partitions)]
+        for p in metis_partition:
+            balance[p-1] += 1
+        balance = max(balance)/float(graph.number_of_nodes()/partitions)
+        return edge_cut, balance
 
     finally:
         os.remove(tmp_file_name)

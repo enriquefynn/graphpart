@@ -5,6 +5,7 @@ from copy import copy
 import numpy as np
 import networkx as nx
 import nn
+from test import test_with_metis
 
 class TestIndividual(object):
     """Test individual.
@@ -15,13 +16,15 @@ class TestIndividual(object):
     n_partitions -- number of partitions
     edges -- number of edges to form in each iteration (default 2)
     """
-    
+
     def __init__(self, number_of_nodes, density, n_partitions, edges=2):
         self.indices = []
         self.n_partitions = n_partitions
         self.n_nodes = number_of_nodes
 
         graph = nx.powerlaw_cluster_graph(number_of_nodes, edges, density)
+        self.graph = max(nx.connected_component_subgraphs(graph), key=len)
+
         for edge in graph.edges_iter():
             self.indices.append(list(edge))
 
@@ -58,12 +61,14 @@ class TestIndividual(object):
 
 class Individual(object):
     
-    def __init__(self, layer_size):
+    def __init__(self, id, layer_size):
+        self.id = id
         self.neural_net = nn.Network(layer_size)
-        self.fitness = 0
+        self.fitness = []
+        self.fitness_acc = 0.
     
     def __str__(self):
-        return str(self.fitness)
+        return str(self.fitness_acc)
 
     def forward(self, n_times, test_graph, features):
         for _ in xrange(n_times):
@@ -74,45 +79,60 @@ class Individual(object):
     def crossover(self, fathers):
         for layer in range(len(self.neural_net.weights)):
             crossover_point = np.random.choice(len(self.neural_net.weights[layer]), 1)[0]
-            #print 'POINT:', crossover_point
-            #print 'F1:', fathers[0].neural_net.weights[layer][:crossover_point]
-            #print 'F2:', fathers[1].neural_net.weights[layer][crossover_point:]
             self.neural_net.weights[layer] = np.concatenate((fathers[0].neural_net.weights[layer][:crossover_point], 
                                              fathers[1].neural_net.weights[layer][crossover_point:]))
             self.fitness = 0
 
+    #mutate every layer
+    def mutate(self):
+        #print 'Mutating', self.id
+        for layer in range(len(self.neural_net.weights)):
+            mutation_point = np.random.choice(len(self.neural_net.weights[layer]), 1)[0]
+            self.neural_net.weights[layer][mutation_point] = np.random.random()
+    
+    def calculate_fitness(self):
+        average_edge_cut = [f[0] for f in self.fitness]
+        average_balance = [f[1] for f in self.fitness]
+        self.fitness_acc = np.average(average_edge_cut) + np.average(average_balance)
+
 class GA(object):
-    def __init__(self, partitions, initial_population, test_cases, mutation_rate=0.1, elitism = 0.2):
+    def __init__(self, partitions, initial_population, test_cases, mutation_rate=0.1, elitism=0.2):
         self.population = initial_population
         self.test_cases = test_cases
         self.partitions = partitions
         self.elitism = elitism
-    
+        self.mutation_rate = mutation_rate
+
     def evolve(self, convolutions):
         print 'Evolving...'
         for individual in tqdm(self.population):
+            individual.fitness = []
             for test in self.test_cases:
                 n_nodes = test.matrix.get_shape()[0]
                 init = np.random.uniform(0, 1, (self.partitions, n_nodes))
                 init = init / np.sum(init, axis=0, keepdims=True)
                 #Forward NN
                 partitions = individual.forward(convolutions, test.matrix, init)
-                individual.fitness = test.get_edge_cut_balance(partitions)
-                #print individual.fitness
+                #Calculate Fitness
+                individual.fitness.append(test.get_edge_cut_balance(partitions))
+            individual.calculate_fitness()
+
         #sort
-        self.population.sort(key=operator.attrgetter('fitness'))
+        self.population.sort(key=operator.attrgetter('fitness_acc'))
+        for i in self.population:
+            print i,
+        print
         #Pick n_elite for crossover
         n_elite = int(len(self.population)*self.elitism)
+        print 'Crossover...'
         for i in range(n_elite, len(self.population)):
-            #TODO: Like some Assimov's book allow more than 2 fathers
             fathers = np.random.choice(n_elite, 2)
             self.population[i].crossover([self.population[fathers[0]], self.population[fathers[1]]])
-
-        for ind in self.population:
-            print ind
-
-    def mutate():
-        pass
+            #Mutate
+            if np.random.uniform() <= self.mutation_rate:
+                self.population[i].mutate()
+        
+        #print test_with_metis(self.population[0], 50000, 1, self.partitions)
 
 if __name__ == '__main__':
     a = TestIndividual(10, 0.5, 2)

@@ -11,16 +11,24 @@ def get_clustered_graph(partitions, vertexes, ncon):
 
     m = 0
     for i in range(partitions):
-        tmp = nx.Graph(nx.barabasi_albert_graph(vertexes, 2, seed = 0))
+        tmp = nx.Graph(nx.barabasi_albert_graph(vertexes, 2))
         for e in tmp.edges():
             graph.add_edge(e[0] + m*vertexes, e[1] + m*vertexes)
         m+=1
+
+    for i in range(ncon):
+        ps = np.arange(partitions)
+        np.random.shuffle(ps)
+        n = np.random.randint(vertexes)
+        nn = np.random.randint(vertexes)
+        graph.add_edge(ps[0]*vertexes + n, ps[1]*vertexes + nn)
+
     return graph
 
-def get_metis_instance(partitions, n, m, seed):
+def get_metis_instance(partitions, n, seed):
     #graph = nx.Graph(nx.barabasi_albert_graph(n, m, seed = seed))
-    graph = get_clustered_graph(partitions, n, 0)
-    tmp_filename = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(5))
+    graph = get_clustered_graph(partitions, n, 2)
+    tmp_filename = 'a'
     with open(tmp_filename, 'w') as tmp_graph:
         tmp_graph.write('{} {}\n'.format(graph.number_of_nodes(), graph.number_of_edges()))
         for node in range(graph.number_of_nodes()):
@@ -28,7 +36,7 @@ def get_metis_instance(partitions, n, m, seed):
                 tmp_graph.write('{} '.format(edg + 1))
             tmp_graph.write('\n')
         
-    os.system('{} {} {}'.format('gpmetis', tmp_graph.name, partitions))
+    os.system('{} {} {} &>/dev/null'.format('gpmetis', tmp_graph.name, partitions))
     partition_filename = '{}.part.{}'.format(tmp_filename, partitions)
     partition_data = []
     with open(partition_filename, 'r') as p:
@@ -62,6 +70,7 @@ class Network:
         self.weights = []
         for i in range(0, len(self.layer_sizes) - 1):
             self.weights.append(np.random.normal(0.0, std, (layer_sizes[i+1], layer_sizes[i])))
+            
         self.buffers = [None] * len(self.layer_sizes)
             
     def forward(self, A, x):
@@ -98,36 +107,34 @@ class Network:
                  
 if __name__ == '__main__':
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 's:n:m:')
+        opts, args = getopt.getopt(sys.argv[1:], 's:n:')
     except getopt.GetoptError:
         sys.exit(1)
     n_parts = 2
     seed = 0
     n = 10
-    m = 6
+    m = 2
 
     for opt, arg in opts:
         if opt == '-s':
             seed = int(arg)
         if opt == '-n':
             n = int(arg)
-        if opt == '-m':
-            m = int(arg)
 
-    net = Network([n_parts, 10, 10, n_parts], std=.5)
+    net = Network([n_parts, 32, 32, 32, 32, n_parts], std=.5)
 
 
-    n_epoch = 10000
+    n_epoch = 100000
     epoch = 0
     while epoch < n_epoch:
         #print "epoch: ", epoch
         #Create Random Graph with Partitions
         seed = np.random.rand()
-        A, part = get_metis_instance(n_parts, n, m, seed = seed)
+        A, part = get_metis_instance(n_parts, n, seed = seed)
 
         n_times = 3
         y = None
-        n_nodes = A.get_shape()[0] 
+        n_nodes = A.get_shape()[0]
         
         #x out of loop
         x = np.random.uniform(0, 1, (n_parts, n_nodes))
@@ -135,7 +142,6 @@ if __name__ == '__main__':
         for i in range(n_times):
             #Create Input
             
-
             #Run Network
             #y = net.forward(A, x)
             y = net.forward(A, x)
@@ -166,12 +172,14 @@ if __name__ == '__main__':
                 t[mapped_part[i], i] = 1
 
             #Run Backward pass (Learn)
-            print "T"
-            print t
-            print "Y"
-            print y
+            #print "T"
+            #print t
+            #print "Y"
+            #print y
             delta = t - y
-            net.backward(A, delta, lr = .0003)
+            net.backward(A, delta, lr = .0001)
+            print 'T:', t
+            print 'G:', guess
             x = y
            
         if epoch%100 == 0:
